@@ -50,6 +50,7 @@ sample-library/
 # Local environment files
 .env
 .env.local
+.cursorrules
 
 # Build scripts output
 build-output/
