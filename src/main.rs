@@ -277,9 +277,14 @@ impl eframe::App for MusicShuffler {
             self.last_progress_update = SystemTime::now();
         }
         
-        // Only request repaint when needed
-        if self.metadata_loading {
-            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        // Update every 1 second, plus immediately on mouse input when paused
+        ctx.request_repaint_after(std::time::Duration::from_secs(1));
+        
+        // Also respond to mouse when paused for good UX
+        if let Some(player) = &self.audio_player {
+            if !player.is_playing() {
+                ctx.request_repaint_after(std::time::Duration::from_millis(16)); // ~60fps for responsiveness
+            }
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
