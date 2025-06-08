@@ -77,15 +77,7 @@ impl AudioPlayer {
         }
     }
 
-    pub fn get_progress(&self) -> Option<f32> {
-        if let (Some(start_time), Some(duration)) = (self.start_time, self.duration) {
-            let elapsed = start_time.elapsed();
-            let progress = elapsed.as_secs_f32() / duration.as_secs_f32();
-            Some(progress.clamp(0.0, 1.0))
-        } else {
-            None
-        }
-    }
+
 
     pub fn get_progress_with_duration(&self, total_duration_secs: f32) -> Option<f32> {
         if let Some(start_time) = self.start_time {

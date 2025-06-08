@@ -33,7 +33,7 @@ pub fn scan_music_directory_fast(dir: &Path) -> Result<Vec<PathBuf>> {
     println!("Found {} total files, filtering for music files...", entries.len());
     
     // Split entries among threads
-    let chunk_size = (entries.len() + num_threads - 1) / num_threads;
+    let chunk_size = entries.len().div_ceil(num_threads);
     let mut handles = Vec::new();
     
     for chunk in entries.chunks(chunk_size) {
@@ -92,8 +92,4 @@ pub fn generate_playlist(music_files: &[PathBuf], count: usize) -> Vec<PathBuf> 
     files_vec.into_iter().take(count).collect()
 }
 
-// Fast playlist generation that only loads metadata for selected songs
-pub fn generate_playlist_lazy(music_files: &[PathBuf], count: usize) -> Vec<PathBuf> {
-    println!("Generating playlist from {} files...", music_files.len());
-    generate_playlist(music_files, count)
-} 
+ 

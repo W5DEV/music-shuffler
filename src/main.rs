@@ -132,7 +132,6 @@ impl MusicShuffler {
                             println!("Loading {} files from cache...", cache.files.len());
                             self.music_files = cache.files;
                             println!("Cache loaded successfully!");
-                            return;
                         } else {
                             println!("Cache invalid - directory changed");
                         }
@@ -451,9 +450,9 @@ impl eframe::App for MusicShuffler {
                                 ui.add(egui::Image::new((texture.id(), egui::vec2(size[0] as f32, size[1] as f32))));
                             }
                         }
-                        ui.label(format!("{}", metadata.title));
-                        ui.label(format!("{}", metadata.artist));
-                        ui.label(format!("{}", metadata.album));
+                        ui.label(metadata.title.to_string());
+                        ui.label(metadata.artist.to_string());
+                        ui.label(metadata.album.to_string());
                         // Progress bar and time
                         let (progress, duration_secs) = if let Some(player) = &self.audio_player {
                             let player_duration = player.get_duration().map(|d| d.as_secs_f32());
@@ -489,14 +488,12 @@ impl eframe::App for MusicShuffler {
                             egui::vec2(button_row_width - 80.0, 75.0),
                             egui::Layout::left_to_right(egui::Align::Center),
                             |ui| {
-                                if ui.add_sized([50.0, 50.0], egui::Button::new(egui::RichText::new("  ⏮  ").size(25.0).monospace().strong()).frame(true).min_size(egui::vec2(50.0, 50.0)).corner_radius(25.0)).clicked() {
-                                    if self.current_song_index > 0 {
-                                        self.current_song_index -= 1;
-                                        if let Some((path, metadata)) = self.playlist.get(self.current_song_index) {
-                                            if let Err(e) = self.audio_player.as_mut().unwrap().play(path) {
-                                                eprintln!("Error playing track '{}': {}", metadata.title, e);
-                                                eprintln!("This file may be corrupted. Try re-encoding or replacing it.");
-                                            }
+                                if ui.add_sized([50.0, 50.0], egui::Button::new(egui::RichText::new("  ⏮  ").size(25.0).monospace().strong()).frame(true).min_size(egui::vec2(50.0, 50.0)).corner_radius(25.0)).clicked() && self.current_song_index > 0 {
+                                    self.current_song_index -= 1;
+                                    if let Some((path, metadata)) = self.playlist.get(self.current_song_index) {
+                                        if let Err(e) = self.audio_player.as_mut().unwrap().play(path) {
+                                            eprintln!("Error playing track '{}': {}", metadata.title, e);
+                                            eprintln!("This file may be corrupted. Try re-encoding or replacing it.");
                                         }
                                     }
                                 }
@@ -504,31 +501,27 @@ impl eframe::App for MusicShuffler {
                                 if ui.add_sized([75.0, 75.0], egui::Button::new(egui::RichText::new(play_symbol).size(37.0).monospace().strong()).frame(true).min_size(egui::vec2(75.0, 75.0)).corner_radius(37.5)).clicked() {
                                     if self.audio_player.as_ref().unwrap().is_playing() {
                                         self.audio_player.as_mut().unwrap().pause();
-                                    } else {
-                                        if let Some((path, metadata)) = self.playlist.get(self.current_song_index) {
+                                    } else if let Some((path, metadata)) = self.playlist.get(self.current_song_index) {
+                                        if let Err(e) = self.audio_player.as_mut().unwrap().play(path) {
+                                            eprintln!("Error playing track '{}': {}", metadata.title, e);
+                                            eprintln!("This file may be corrupted. Try re-encoding or replacing it.");
+                                        }
+                                    } else if !self.playlist.is_empty() {
+                                        self.current_song_index = 0;
+                                        if let Some((path, metadata)) = self.playlist.first() {
                                             if let Err(e) = self.audio_player.as_mut().unwrap().play(path) {
                                                 eprintln!("Error playing track '{}': {}", metadata.title, e);
                                                 eprintln!("This file may be corrupted. Try re-encoding or replacing it.");
-                                            }
-                                        } else if !self.playlist.is_empty() {
-                                            self.current_song_index = 0;
-                                            if let Some((path, metadata)) = self.playlist.get(0) {
-                                                if let Err(e) = self.audio_player.as_mut().unwrap().play(path) {
-                                                    eprintln!("Error playing track '{}': {}", metadata.title, e);
-                                                    eprintln!("This file may be corrupted. Try re-encoding or replacing it.");
-                                                }
                                             }
                                         }
                                     }
                                 }
-                                if ui.add_sized([50.0, 50.0], egui::Button::new(egui::RichText::new("  ⏭  ").size(25.0).monospace().strong()).frame(true).min_size(egui::vec2(50.0, 50.0)).corner_radius(25.0)).clicked() {
-                                    if self.current_song_index < self.playlist.len() - 1 {
-                                        self.current_song_index += 1;
-                                        if let Some((path, metadata)) = self.playlist.get(self.current_song_index) {
-                                            if let Err(e) = self.audio_player.as_mut().unwrap().play(path) {
-                                                eprintln!("Error playing track '{}': {}", metadata.title, e);
-                                                eprintln!("This file may be corrupted. Try re-encoding or replacing it.");
-                                            }
+                                if ui.add_sized([50.0, 50.0], egui::Button::new(egui::RichText::new("  ⏭  ").size(25.0).monospace().strong()).frame(true).min_size(egui::vec2(50.0, 50.0)).corner_radius(25.0)).clicked() && self.current_song_index < self.playlist.len() - 1 {
+                                    self.current_song_index += 1;
+                                    if let Some((path, metadata)) = self.playlist.get(self.current_song_index) {
+                                        if let Err(e) = self.audio_player.as_mut().unwrap().play(path) {
+                                            eprintln!("Error playing track '{}': {}", metadata.title, e);
+                                            eprintln!("This file may be corrupted. Try re-encoding or replacing it.");
                                         }
                                     }
                                 }
