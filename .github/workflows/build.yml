@@ -95,7 +95,21 @@ jobs:
           name: music-shuffler-windows
           path: ./test-release/
 
-      - name: Test executable
+      - name: Verify build artifacts
         run: |
           cd test-release
-          .\music-shuffler.exe --help || echo "App started (expected behavior for GUI app)"
+          if (Test-Path "music-shuffler.exe") { 
+            Write-Host "✅ music-shuffler.exe found"
+            $fileSize = (Get-Item "music-shuffler.exe").Length
+            Write-Host "📦 File size: $($fileSize / 1MB) MB"
+          } else { 
+            Write-Host "❌ music-shuffler.exe not found"
+            exit 1
+          }
+          if (Test-Path "README.txt") { 
+            Write-Host "✅ README.txt found"
+          } else { 
+            Write-Host "❌ README.txt not found"
+            exit 1
+          }
+          Write-Host "🎉 All build artifacts verified successfully!"
