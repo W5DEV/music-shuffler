@@ -39,7 +39,7 @@ jobs:
         run: |
           mkdir release
           copy target\x86_64-pc-windows-msvc\release\music-shuffler.exe release\
-          copy README.md release\ 2>nul || echo "No README found"
+          if (Test-Path "README.md") { copy README.md release\ } else { Write-Host "No README found" }
 
       - name: Create deployment package
         run: |
