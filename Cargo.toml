@@ -5,6 +5,10 @@ edition = "2021"
 authors = ["Your Name"]
 description = "A music shuffler application that creates random playlists from your music library"
 
+[[bin]]
+name = "music-shuffler"
+path = "src/main.rs"
+
 [dependencies]
 eframe = "0.31.1"  # egui framework for the UI
 rodio = "0.20.1"   # Audio playback
