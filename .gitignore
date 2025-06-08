@@ -1,0 +1,56 @@
+# Rust build artifacts
+/target/
+Cargo.lock
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows build artifacts
+release-windows/
+music-shuffler-windows.zip
+*.exe
+
+# Installer build output
+/dist/
+installer/Output/
+
+# Application cache and config (for testing)
+music_shuffler_config.txt
+file_cache.json
+
+# GitHub Actions artifacts
+artifacts/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Development/testing files
+test-music/
+sample-library/
+
+# Backup files
+*.bak
+*.backup
+
+# Local environment files
+.env
+.env.local
+
+# Build scripts output
+build-output/
+releases/ 

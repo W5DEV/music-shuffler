@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <style>
+      .main-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        width: 100vw;
+      }
+      .app-header {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+      }
+      .app-header-content {
+        display: flex;
+        flex-direction: column;
+        align-items: start;
+        justify-content: center;
+        width: 100%;
+      }
+      .app-content {
+        display: flex;
+        flex-direction: row;
+        align-items: flex-start;
+        justify-content: center;
+        width: 100vw;
+        height: 80vh;
+      }
+      .playlist-container {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: flex-start;
+        width: 50%;
+        height: 100%;
+        margin-right: 32px;
+      }
+      .now-playing-container {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        height: 100%;
+        width: 50%;
+        align-items: center;
+        justify-content: start;
+        text-align: center;
+      }
+      .now-playing-info img {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+      }
+      .playlist-item .song-info {
+        width: 100%;
+        text-align: left;
+        background: #eee;
+        border: none;
+        padding: 8px;
+        cursor: pointer;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .playlist-item .song-actions {
+        display: none;
+        color: red;
+        background: none;
+        border: none;
+        cursor: pointer;
+        float: right;
+      }
+      .playlist-item:hover .song-actions {
+        display: inline;
+      }
+      .now-playing-progress {
+        width: 100%;
+        height: 10px;
+        background: #eee;
+        border: none;
+        cursor: pointer;
+      }
+      .progress-bar {
+        width: 100%;
+        height: 10px;
+        background: #eee;
+        border: none;
+        cursor: pointer;
+        border-radius: 5px;
+        margin-top: 10px;
+        border: 1px solid #000;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="main-container">
+      <div class="app-header">
+        <h1>Music Shuffler</h1>
+        <div class="app-header-content">
+          <p>Select a music directory to get started</p>
+          <button>Select Directory</button>
+          <button>Generate Playlist</button>
+        </div>
+      </div>
+      <div class="app-content">
+        <div class="playlist-container">
+          <h2>Playlist</h2>
+          <ul>
+            <li class="playlist-item">
+              <button class="song-info">Song title 1</button>
+              <button class="song-actions">X</button>
+            </li>
+            <li class="playlist-item">
+              <button class="song-info">
+                A VERY VERY VERY VERY VERY VERY LONG SONG TITLE
+              </button>
+              <button class="song-actions">X</button>
+            </li>
+            <li class="playlist-item">
+              <button class="song-info">
+                A VERY VERY VERY VERY VERY VERY LONG SONG TITLE
+              </button>
+              <button class="song-actions">X</button>
+            </li>
+            <li class="playlist-item">
+              <button class="song-info">
+                A VERY VERY VERY VERY VERY VERY LONG SONG TITLE
+              </button>
+              <button class="song-actions">X</button>
+            </li>
+            <li class="playlist-item">
+              <button class="song-info">
+                A VERY VERY VERY VERY VERY VERY LONG SONG TITLE
+              </button>
+              <button class="song-actions">X</button>
+            </li>
+            <li class="playlist-item">
+              <button class="song-info">
+                A VERY VERY VERY VERY VERY VERY LONG SONG TITLE
+              </button>
+              <button class="song-actions">X</button>
+            </li>
+            <li class="playlist-item">
+              <button class="song-info">
+                A VERY VERY VERY VERY VERY VERY LONG SONG TITLE
+              </button>
+              <button class="song-actions">X</button>
+            </li>
+            <li class="playlist-item">
+              <button class="song-info">
+                A VERY VERY VERY VERY VERY VERY LONG SONG TITLE
+              </button>
+              <button class="song-actions">X</button>
+            </li>
+            <li class="playlist-item">
+              <button class="song-info">
+                A VERY VERY VERY VERY VERY VERY LONG SONG TITLE
+              </button>
+              <button class="song-actions">X</button>
+            </li>
+            <li class="playlist-item">
+              <button class="song-info">
+                A VERY VERY VERY VERY VERY VERY LONG SONG TITLE
+              </button>
+              <button class="song-actions">X</button>
+            </li>
+            <li class="playlist-item">
+              <button class="song-info">
+                A VERY VERY VERY VERY VERY VERY LONG SONG TITLE
+              </button>
+              <button class="song-actions">X</button>
+            </li>
+          </ul>
+        </div>
+        <div class="now-playing-container">
+          <h2>Now Playing</h2>
+          <div class="now-playing-info">
+            <img src="album-art.jpg" alt="Album Art" />
+            <div class="now-playing-title">
+              <h2>Title</h2>
+            </div>
+            <div class="now-playing-artist">
+              <h3>Artist</h3>
+            </div>
+            <div class="now-playing-album">
+              <h3>Album</h3>
+            </div>
+          </div>
+          <div class="now-playing-progress">
+            <div class="progress-bar"></div>
+          </div>
+          <div class="now-playing-controls">
+            <button>Previous</button>
+            <button>Play</button>
+            <button>Next</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
