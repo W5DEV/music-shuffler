@@ -18,6 +18,8 @@ use rodio::{Decoder, Source};
 use std::collections::HashMap;
 use std::time::SystemTime;
 use serde::{Serialize, Deserialize};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 struct MusicShuffler {
     music_directory: Option<PathBuf>,
@@ -25,6 +27,12 @@ struct MusicShuffler {
     current_song_index: usize,
     music_files: Vec<PathBuf>,
     audio_player: Option<AudioPlayer>,
+    metadata_loading: bool,
+    pending_metadata: Arc<Mutex<Vec<(usize, PathBuf, SongMetadata)>>>,
+    last_metadata_check: SystemTime,
+    cached_progress: f32,
+    cached_duration: f32,
+    last_progress_update: SystemTime,
 }
 
 impl Default for MusicShuffler {
@@ -35,6 +43,12 @@ impl Default for MusicShuffler {
             current_song_index: 0,
             music_files: Vec::new(),
             audio_player: AudioPlayer::new().ok(),
+            metadata_loading: false,
+            pending_metadata: Arc::new(Mutex::new(Vec::new())),
+            last_metadata_check: SystemTime::now(),
+            cached_progress: 0.0,
+            cached_duration: 0.0,
+            last_progress_update: SystemTime::now(),
         }
     }
 }
@@ -217,8 +231,57 @@ fn extract_duration_symphonia(path: &std::path::Path) -> Option<f32> {
     None
 }
 
+impl MusicShuffler {
+    fn check_pending_metadata(&mut self) {
+        let updates = if let Ok(mut pending) = self.pending_metadata.try_lock() {
+            let updates: Vec<_> = pending.drain(..).collect();
+            updates
+        } else {
+            return;
+        };
+
+        if !updates.is_empty() {
+            for (index, path, metadata) in updates {
+                if index < self.playlist.len() {
+                    self.playlist[index] = (path, metadata);
+                }
+            }
+            // Check if all metadata is loaded
+            let all_loaded = self.playlist.iter().all(|(_, meta)| meta.artist != "Loading...");
+            if all_loaded {
+                self.metadata_loading = false;
+            }
+        }
+    }
+}
+
 impl eframe::App for MusicShuffler {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Only check metadata every 200ms to avoid constant updates
+        if self.last_metadata_check.elapsed().unwrap_or_default().as_millis() > 200 {
+            self.check_pending_metadata();
+            self.last_metadata_check = SystemTime::now();
+        }
+        
+        // Update progress cache only occasionally
+        if self.last_progress_update.elapsed().unwrap_or_default().as_millis() > 100 {
+            if let Some(player) = &self.audio_player {
+                if let Some((_, metadata)) = self.playlist.get(self.current_song_index) {
+                    let duration_secs = metadata.duration.unwrap_or(0.0);
+                    if duration_secs > 0.0 {
+                        self.cached_progress = player.get_progress_with_duration(duration_secs).unwrap_or(0.0).clamp(0.0, 1.0);
+                        self.cached_duration = duration_secs;
+                    }
+                }
+            }
+            self.last_progress_update = SystemTime::now();
+        }
+        
+        // Only request repaint when needed
+        if self.metadata_loading {
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             // Header
             ui.vertical_centered(|ui| {
@@ -246,7 +309,7 @@ impl eframe::App for MusicShuffler {
                             }
                         }
                     }
-                    if ui.button("Generate Playlist").clicked() {
+                    if ui.button("Generate Playlist").clicked() && !self.metadata_loading {
                         // First scan directory if not already done
                         if self.music_files.is_empty() {
                             if let Some(dir) = &self.music_directory {
@@ -276,9 +339,10 @@ impl eframe::App for MusicShuffler {
                         println!("Generating playlist...");
                         let files = music::generate_playlist(&self.music_files, 50);
                         
-                        // Load metadata lazily in a separate thread to avoid blocking UI
+                        // Clear previous playlist and reset state
                         self.playlist.clear();
                         self.current_song_index = 0;
+                        self.metadata_loading = true;
                         if let Some(player) = &mut self.audio_player {
                             player.stop();
                         }
@@ -297,59 +361,73 @@ impl eframe::App for MusicShuffler {
                             self.playlist.push((file.clone(), placeholder_metadata));
                         }
                         
-                        // Load metadata with caching
-                        println!("Loading metadata for {} tracks...", files.len());
-                        let mut cache = load_file_cache().unwrap_or_else(|| FileCache {
-                            directory: self.music_directory.as_ref().unwrap().clone(),
-                            last_scan: SystemTime::now(),
-                            files: self.music_files.clone(),
-                            metadata_cache: HashMap::new(),
-                        });
+                        // Set loading flag
+                        self.metadata_loading = true;
                         
-                        let mut cache_updated = false;
-                        for (i, path) in files.iter().enumerate() {
-                            let mut metadata_loaded = false;
+                        // Load metadata in background thread
+                        let files_for_bg = files.clone();
+                        let pending_metadata = Arc::clone(&self.pending_metadata);
+                        let music_dir = self.music_directory.clone().unwrap();
+                        
+                        thread::spawn(move || {
+                            println!("Loading metadata for {} tracks in background...", files_for_bg.len());
+                            let mut cache = load_file_cache().unwrap_or_else(|| FileCache {
+                                directory: music_dir,
+                                last_scan: SystemTime::now(),
+                                files: files_for_bg.clone(),
+                                metadata_cache: HashMap::new(),
+                            });
                             
-                            // Try to load from cache first
-                            if let Some(cached) = cache.metadata_cache.get(path) {
-                                if let Some((file_size, modified_time)) = get_file_info(path) {
-                                    if cached.file_size == file_size && cached.modified_time == modified_time {
-                                        // Cache hit - use cached metadata
-                                        self.playlist[i] = (path.clone(), cached.metadata.clone());
-                                        metadata_loaded = true;
-                                    }
-                                }
-                            }
-                            
-                            // If not in cache or file changed, load fresh
-                            if !metadata_loaded {
-                                if let Ok(mut metadata) = SongMetadata::from_path(path) {
-                                    metadata.duration = extract_duration_symphonia(path);
-                                    self.playlist[i] = (path.clone(), metadata.clone());
-                                    
-                                    // Update cache
+                            let mut cache_updated = false;
+                            for (i, path) in files_for_bg.iter().enumerate() {
+                                let mut metadata_loaded = false;
+                                
+                                // Try to load from cache first
+                                if let Some(cached) = cache.metadata_cache.get(path) {
                                     if let Some((file_size, modified_time)) = get_file_info(path) {
-                                        cache.metadata_cache.insert(path.clone(), CachedMetadata {
-                                            metadata,
-                                            file_size,
-                                            modified_time,
-                                        });
-                                        cache_updated = true;
+                                        if cached.file_size == file_size && cached.modified_time == modified_time {
+                                            // Cache hit - use cached metadata
+                                            if let Ok(mut pending) = pending_metadata.lock() {
+                                                pending.push((i, path.clone(), cached.metadata.clone()));
+                                            }
+                                            metadata_loaded = true;
+                                        }
                                     }
+                                }
+                                
+                                // If not in cache or file changed, load fresh
+                                if !metadata_loaded {
+                                    if let Ok(mut metadata) = SongMetadata::from_path(path) {
+                                        metadata.duration = extract_duration_symphonia(path);
+                                        
+                                        if let Ok(mut pending) = pending_metadata.lock() {
+                                            pending.push((i, path.clone(), metadata.clone()));
+                                        }
+                                        
+                                        // Update cache
+                                        if let Some((file_size, modified_time)) = get_file_info(path) {
+                                            cache.metadata_cache.insert(path.clone(), CachedMetadata {
+                                                metadata,
+                                                file_size,
+                                                modified_time,
+                                            });
+                                            cache_updated = true;
+                                        }
+                                    }
+                                }
+                                
+                                if i % 10 == 0 {
+                                    println!("Loaded metadata for {}/{} tracks", i + 1, files_for_bg.len());
                                 }
                             }
                             
-                            if i % 10 == 0 {
-                                println!("Loaded metadata for {}/{} tracks", i + 1, files.len());
+                            // Save updated cache
+                            if cache_updated {
+                                save_file_cache(&cache);
                             }
-                        }
-                        
-                        // Save updated cache
-                        if cache_updated {
-                            save_file_cache(&cache);
-                        }
-                        
-                        println!("Metadata loading complete!");
+                            
+                            println!("Background metadata loading complete!");
+                        });
                     }
                 });
             });
@@ -374,60 +452,26 @@ impl eframe::App for MusicShuffler {
                         });
                     } else {
                         let available_height = ui.available_height();
-                        egui::ScrollArea::vertical()
+                                                egui::ScrollArea::vertical()
                             .max_height(available_height)
-                            .show(ui, |ui| {
-                                let indices_to_remove = Vec::new();
-                                for (i, track) in self.playlist.iter().enumerate() {
-                                let is_current = self.current_song_index == i;
-                                let row_height = 24.0;
-                                let padding_h = 4.0;
-                                let (rect, _response) = ui.allocate_exact_size(egui::vec2(400.0, row_height), egui::Sense::hover());
-                                if is_current {
-                                    let painter = ui.painter();
-                                    painter.rect_filled(rect, 4.0, egui::Color32::from_rgb(70, 120, 100));
-                                }
-                                ui.allocate_new_ui(egui::UiBuilder::new().max_rect(rect), |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.add_space(padding_h);
-                                        let max_title_chars = 36;
-                                        let title = &track.1.title;
-                                        let display_title = if title.chars().count() > max_title_chars {
-                                            let mut s = title.chars().take(max_title_chars - 1).collect::<String>();
-                                            s.push('…');
-                                            s
-                                        } else {
-                                            title.clone()
-                                        };
-                                        let rich_text = if is_current {
-                                            egui::RichText::new(display_title).size(14.0).color(egui::Color32::WHITE)
-                                        } else {
-                                            egui::RichText::new(display_title).size(14.0)
-                                        };
-                                        let label_response = ui.label(rich_text);
-                                        if label_response.clicked() {
+                            .show_rows(ui, 20.0, self.playlist.len(), |ui, row_range| {
+                                for i in row_range {
+                                    if let Some((_, metadata)) = self.playlist.get(i) {
+                                        let is_current = self.current_song_index == i;
+                                        
+                                        let response = ui.selectable_label(is_current, &metadata.title);
+                                        
+                                        if response.clicked() {
                                             self.current_song_index = i;
-                                            if let Err(e) = self.audio_player.as_mut().unwrap().play(&track.0) {
-                                                eprintln!("Error playing track '{}': {}", track.1.title, e);
-                                                eprintln!("This file may be corrupted. Try re-encoding or replacing it.");
+                                            if let Some(ref mut player) = self.audio_player {
+                                                if let Err(e) = player.play(&self.playlist[i].0) {
+                                                    eprintln!("Error playing track");
+                                                }
                                             }
                                         }
-                                        if label_response.hovered() {
-                                            ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
-                                            label_response.on_hover_ui(|ui| { ui.label(title); });
-                                        }
-                                        ui.add_space(padding_h);
-                                    });
-                                });
-                                ui.add_space(4.0); // 4px gap below each item
-                            }
-                            for &index in indices_to_remove.iter().rev() {
-                                self.playlist.remove(index);
-                                if self.current_song_index >= self.playlist.len() {
-                                    self.current_song_index = self.playlist.len().saturating_sub(1);
+                                    }
                                 }
-                            }
-                        });
+                            });
                     }
                 });
                 // Now Playing panel (fixed 400px)
@@ -435,47 +479,14 @@ impl eframe::App for MusicShuffler {
                     ui.set_width(400.0);
                     ui.heading("Now Playing");
                     if let Some((_path, metadata)) = self.playlist.get(self.current_song_index) {
-                        if let Some(art_data) = &metadata.album_art {
-                            if let Ok(img) = image::load_from_memory(art_data) {
-                                let size = [200, 200];
-                                let img = img.resize_exact(size[0], size[1], image::imageops::FilterType::Lanczos3);
-                                let img_buffer = img.to_rgb8();
-                                let color_image = egui::ColorImage::from_rgb([
-                                    size[0] as usize,
-                                    size[1] as usize
-                                ], &img_buffer);
-                                let texture = ui.ctx().load_texture(
-                                    "album_art",
-                                    color_image,
-                                    egui::TextureOptions::default(),
-                                );
-                                ui.add(egui::Image::new((texture.id(), egui::vec2(size[0] as f32, size[1] as f32))));
-                            }
-                        }
+                        // Simple grey square placeholder for album art
+                        let (rect, _) = ui.allocate_exact_size(egui::vec2(200.0, 200.0), egui::Sense::hover());
+                        ui.painter().rect_filled(rect, 8.0, egui::Color32::from_gray(128));
                         ui.label(metadata.title.to_string());
                         ui.label(metadata.artist.to_string());
                         ui.label(metadata.album.to_string());
-                        // Progress bar and time
-                        let (progress, duration_secs) = if let Some(player) = &self.audio_player {
-                            let player_duration = player.get_duration().map(|d| d.as_secs_f32());
-                            
-                            // Try to get duration from audio player first, then fallback to metadata
-                            let duration_secs = player_duration
-                                .filter(|&d| d > 0.0)
-                                .or(metadata.duration)
-                                .unwrap_or(0.0);
-                            
-                            // Use the appropriate progress calculation based on available duration
-                            let progress = if duration_secs > 0.0 {
-                                player.get_progress_with_duration(duration_secs).unwrap_or(0.0)
-                            } else {
-                                0.0
-                            };
-                            
-                            (progress.clamp(0.0, 1.0), duration_secs)
-                        } else {
-                            (0.0, metadata.duration.unwrap_or(0.0))
-                        };
+                        // Progress bar and time (use cached values)
+                        let (progress, duration_secs) = (self.cached_progress, self.cached_duration);
                                                 // Simple progress bar (read-only)
                         let progress_bar = egui::ProgressBar::new(progress);
                         ui.add_sized([375.0, 20.0], progress_bar);
