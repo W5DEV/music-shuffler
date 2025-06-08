@@ -5,7 +5,6 @@ A fast, lightweight music player that creates instant random playlists from your
 ![Windows](https://img.shields.io/badge/Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white)
 ![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)
 ![GitHub release](https://img.shields.io/github/v/release/W5DEV/music-shuffler?style=for-the-badge)
-![GitHub Downloads](https://img.shields.io/github/downloads/W5DEV/music-shuffler/total?style=for-the-badge)
 
 ## ✨ Features
 
