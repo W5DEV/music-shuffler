@@ -33,6 +33,10 @@ struct MusicShuffler {
     cached_progress: f32,
     cached_duration: f32,
     last_progress_update: SystemTime,
+    metadata_progress: Arc<Mutex<(usize, usize)>>, // (current, total)
+    scanning: bool,
+    scan_progress: Arc<Mutex<String>>, // progress message
+    pending_scan_results: Arc<Mutex<Option<Vec<PathBuf>>>>,
 }
 
 impl Default for MusicShuffler {
@@ -49,6 +53,10 @@ impl Default for MusicShuffler {
             cached_progress: 0.0,
             cached_duration: 0.0,
             last_progress_update: SystemTime::now(),
+            metadata_progress: Arc::new(Mutex::new((0, 0))),
+            scanning: false,
+            scan_progress: Arc::new(Mutex::new(String::new())),
+            pending_scan_results: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -253,6 +261,16 @@ impl MusicShuffler {
             }
         }
     }
+    
+    fn check_pending_scan_results(&mut self) {
+        if let Ok(mut pending) = self.pending_scan_results.try_lock() {
+            if let Some(files) = pending.take() {
+                self.music_files = files;
+                self.scanning = false;
+                println!("Scan results received in UI thread");
+            }
+        }
+    }
 }
 
 impl eframe::App for MusicShuffler {
@@ -260,6 +278,7 @@ impl eframe::App for MusicShuffler {
         // Only check metadata every 200ms to avoid constant updates
         if self.last_metadata_check.elapsed().unwrap_or_default().as_millis() > 200 {
             self.check_pending_metadata();
+            self.check_pending_scan_results();
             self.last_metadata_check = SystemTime::now();
         }
         
@@ -339,27 +358,51 @@ impl eframe::App for MusicShuffler {
                             }
                         }
                     }
-                    if ui.button("Generate Playlist").clicked() && !self.metadata_loading {
+                    if ui.button("Generate Playlist").clicked() && !self.metadata_loading && !self.scanning {
                         // First scan directory if not already done
                         if self.music_files.is_empty() {
                             if let Some(dir) = &self.music_directory {
-                                println!("Scanning directory for the first time...");
-                                if let Ok(files) = music::scan_music_directory(dir) {
-                                    self.music_files = files.clone();
-                                    println!("Scan complete! Found {} music files", self.music_files.len());
-                                    
-                                    // Save to cache for next time
-                                    let cache = FileCache {
-                                        directory: dir.clone(),
-                                        last_scan: SystemTime::now(),
-                                        files,
-                                        metadata_cache: HashMap::new(),
+                                self.scanning = true;
+                                let scan_progress = Arc::clone(&self.scan_progress);
+                                let pending_scan_results = Arc::clone(&self.pending_scan_results);
+                                let dir_clone = dir.clone();
+                                
+                                // Start scanning in background thread
+                                thread::spawn(move || {
+                                    let progress_callback = move |msg: String| {
+                                        if let Ok(mut progress) = scan_progress.lock() {
+                                            *progress = msg;
+                                        }
                                     };
-                                    save_file_cache(&cache);
-                                } else {
-                                    println!("Failed to scan directory");
-                                    return;
-                                }
+                                    
+                                    println!("Scanning directory for the first time...");
+                                    if let Ok(files) = music::scan_music_directory_with_progress(&dir_clone, progress_callback) {
+                                        println!("Scan complete! Found {} music files", files.len());
+                                        
+                                        // Save to cache for next time
+                                        let cache = FileCache {
+                                            directory: dir_clone,
+                                            last_scan: SystemTime::now(),
+                                            files: files.clone(),
+                                            metadata_cache: HashMap::new(),
+                                        };
+                                        save_file_cache(&cache);
+                                        
+                                        // Send results back to main thread
+                                        if let Ok(mut pending) = pending_scan_results.lock() {
+                                            *pending = Some(files);
+                                        }
+                                    } else {
+                                        println!("Failed to scan directory");
+                                        // Clear scanning state even on failure
+                                        if let Ok(mut pending) = pending_scan_results.lock() {
+                                            *pending = Some(Vec::new());
+                                        }
+                                    }
+                                });
+                                
+                                // Don't continue with playlist generation yet
+                                return;
                             } else {
                                 println!("No directory selected");
                                 return;
@@ -397,10 +440,17 @@ impl eframe::App for MusicShuffler {
                         // Load metadata in background thread
                         let files_for_bg = files.clone();
                         let pending_metadata = Arc::clone(&self.pending_metadata);
+                        let metadata_progress = Arc::clone(&self.metadata_progress);
                         let music_dir = self.music_directory.clone().unwrap();
                         
                         thread::spawn(move || {
                             println!("Loading metadata for {} tracks in background...", files_for_bg.len());
+                            
+                            // Initialize progress
+                            if let Ok(mut progress) = metadata_progress.lock() {
+                                *progress = (0, files_for_bg.len());
+                            }
+                            
                             let mut cache = load_file_cache().unwrap_or_else(|| FileCache {
                                 directory: music_dir,
                                 last_scan: SystemTime::now(),
@@ -446,6 +496,11 @@ impl eframe::App for MusicShuffler {
                                     }
                                 }
                                 
+                                // Update progress
+                                if let Ok(mut progress) = metadata_progress.lock() {
+                                    *progress = (i + 1, files_for_bg.len());
+                                }
+                                
                                 if i % 10 == 0 {
                                     println!("Loaded metadata for {}/{} tracks", i + 1, files_for_bg.len());
                                 }
@@ -469,7 +524,22 @@ impl eframe::App for MusicShuffler {
                     ui.set_width(400.0);
                     ui.heading("Playlist");
                     
-                    if self.playlist.is_empty() {
+                    if self.scanning {
+                        // Show scanning progress
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(50.0);
+                            ui.label("Scanning directory for music files...");
+                            ui.add_space(10.0);
+                            
+                            if let Ok(progress_msg) = self.scan_progress.lock() {
+                                ui.label(progress_msg.clone());
+                            }
+                            
+                            // Simple spinner or progress indicator
+                            ui.add_space(10.0);
+                            ui.spinner();
+                        });
+                    } else if self.playlist.is_empty() {
                         ui.vertical_centered(|ui| {
                             ui.add_space(50.0);
                             ui.label("No playlist loaded");
@@ -480,6 +550,48 @@ impl eframe::App for MusicShuffler {
                                 ui.label("Select a directory first");
                             }
                         });
+                    } else if self.metadata_loading {
+                        // Show loading progress
+                        if let Ok(progress) = self.metadata_progress.lock() {
+                            let (current, total) = *progress;
+                            if total > 0 {
+                                ui.vertical_centered(|ui| {
+                                    ui.add_space(30.0);
+                                    ui.label("Loading metadata...");
+                                    ui.add_space(10.0);
+                                    
+                                    let progress_fraction = current as f32 / total as f32;
+                                    let progress_bar = egui::ProgressBar::new(progress_fraction)
+                                        .text(format!("{}/{} tracks", current, total));
+                                    ui.add_sized([350.0, 20.0], progress_bar);
+                                    
+                                    ui.add_space(20.0);
+                                });
+                            }
+                        }
+                        
+                        // Still show the playlist with placeholder data
+                        let available_height = ui.available_height();
+                        egui::ScrollArea::vertical()
+                            .max_height(available_height)
+                            .show_rows(ui, 20.0, self.playlist.len(), |ui, row_range| {
+                                for i in row_range {
+                                    if let Some((_, metadata)) = self.playlist.get(i) {
+                                        let is_current = self.current_song_index == i;
+                                        
+                                        let response = ui.selectable_label(is_current, &metadata.title);
+                                        
+                                        if response.clicked() {
+                                            self.current_song_index = i;
+                                            if let Some(ref mut player) = self.audio_player {
+                                                if let Err(_e) = player.play(&self.playlist[i].0) {
+                                                    eprintln!("Error playing track");
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            });
                     } else {
                         let available_height = ui.available_height();
                                                 egui::ScrollArea::vertical()
@@ -544,17 +656,24 @@ impl eframe::App for MusicShuffler {
                                 if ui.add_sized([75.0, 75.0], egui::Button::new(egui::RichText::new(play_symbol).size(37.0).monospace().strong()).frame(true).min_size(egui::vec2(75.0, 75.0)).corner_radius(37.5)).clicked() {
                                     if self.audio_player.as_ref().unwrap().is_playing() {
                                         self.audio_player.as_mut().unwrap().pause();
-                                    } else if let Some((path, metadata)) = self.playlist.get(self.current_song_index) {
-                                        if let Err(e) = self.audio_player.as_mut().unwrap().play(path) {
-                                            eprintln!("Error playing track '{}': {}", metadata.title, e);
-                                            eprintln!("This file may be corrupted. Try re-encoding or replacing it.");
-                                        }
-                                    } else if !self.playlist.is_empty() {
-                                        self.current_song_index = 0;
-                                        if let Some((path, metadata)) = self.playlist.first() {
+                                    } else {
+                                        // Check if there's a paused song to resume
+                                        if self.audio_player.as_ref().unwrap().is_paused() {
+                                            // Resume the paused song
+                                            self.audio_player.as_mut().unwrap().resume();
+                                        } else if let Some((path, metadata)) = self.playlist.get(self.current_song_index) {
+                                            // Start playing a new song
                                             if let Err(e) = self.audio_player.as_mut().unwrap().play(path) {
                                                 eprintln!("Error playing track '{}': {}", metadata.title, e);
                                                 eprintln!("This file may be corrupted. Try re-encoding or replacing it.");
+                                            }
+                                        } else if !self.playlist.is_empty() {
+                                            self.current_song_index = 0;
+                                            if let Some((path, metadata)) = self.playlist.first() {
+                                                if let Err(e) = self.audio_player.as_mut().unwrap().play(path) {
+                                                    eprintln!("Error playing track '{}': {}", metadata.title, e);
+                                                    eprintln!("This file may be corrupted. Try re-encoding or replacing it.");
+                                                }
                                             }
                                         }
                                     }

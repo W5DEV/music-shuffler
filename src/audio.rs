@@ -11,6 +11,8 @@ pub struct AudioPlayer {
     _stream_handle: Option<rodio::OutputStreamHandle>,
     duration: Option<Duration>,
     start_time: Option<std::time::Instant>,
+    paused_time: Option<std::time::Instant>,
+    total_paused_duration: Duration,
 }
 
 impl AudioPlayer {
@@ -22,6 +24,8 @@ impl AudioPlayer {
             _stream_handle: Some(stream_handle),
             duration: None,
             start_time: None,
+            paused_time: None,
+            total_paused_duration: Duration::ZERO,
         })
     }
 
@@ -49,6 +53,8 @@ impl AudioPlayer {
             // Store the sink and start time
             self.sink = Some(sink);
             self.start_time = Some(std::time::Instant::now());
+            self.paused_time = None;
+            self.total_paused_duration = Duration::ZERO;
         }
 
         Ok(())
@@ -61,11 +67,28 @@ impl AudioPlayer {
         self.sink = None;
         self.duration = None;
         self.start_time = None;
+        self.paused_time = None;
+        self.total_paused_duration = Duration::ZERO;
     }
 
     pub fn pause(&mut self) {
         if let Some(sink) = &self.sink {
-            sink.pause();
+            if !sink.is_paused() {
+                sink.pause();
+                self.paused_time = Some(std::time::Instant::now());
+            }
+        }
+    }
+    
+    pub fn resume(&mut self) {
+        if let Some(sink) = &self.sink {
+            if sink.is_paused() {
+                sink.play();
+                if let Some(paused_time) = self.paused_time {
+                    self.total_paused_duration += paused_time.elapsed();
+                    self.paused_time = None;
+                }
+            }
         }
     }
 
@@ -79,19 +102,35 @@ impl AudioPlayer {
 
     pub fn has_finished(&self) -> bool {
         if let Some(sink) = &self.sink {
-            // Song has finished if sink exists but is empty (and not paused)
-            sink.empty() && !sink.is_paused()
+            // Song has finished if sink exists but is empty (all sources consumed)
+            sink.empty()
         } else {
             false
         }
     }
 
-
+    pub fn is_paused(&self) -> bool {
+        if let Some(sink) = &self.sink {
+            sink.is_paused()
+        } else {
+            false
+        }
+    }
 
     pub fn get_progress_with_duration(&self, total_duration_secs: f32) -> Option<f32> {
         if let Some(start_time) = self.start_time {
             if total_duration_secs > 0.0 {
-                let elapsed = start_time.elapsed();
+                let mut elapsed = start_time.elapsed();
+                
+                // Subtract total paused time
+                elapsed = elapsed.saturating_sub(self.total_paused_duration);
+                
+                // If currently paused, don't add the current pause time
+                if let Some(paused_time) = self.paused_time {
+                    // We're currently paused, so don't add time since pause started
+                    elapsed = elapsed.saturating_sub(paused_time.elapsed());
+                }
+                
                 let progress = elapsed.as_secs_f32() / total_duration_secs;
                 Some(progress.clamp(0.0, 1.0))
             } else {
@@ -101,6 +140,4 @@ impl AudioPlayer {
             None
         }
     }
-
-
 } 

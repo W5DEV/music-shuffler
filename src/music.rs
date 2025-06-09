@@ -10,6 +10,43 @@ pub fn scan_music_directory(dir: &Path) -> Result<Vec<PathBuf>> {
     scan_music_directory_fast(dir)
 }
 
+// Scan with progress callback
+pub fn scan_music_directory_with_progress<F>(dir: &Path, progress_callback: F) -> Result<Vec<PathBuf>>
+where
+    F: Fn(String) + Send + Sync + 'static,
+{
+    let progress_callback = Arc::new(progress_callback);
+    
+    progress_callback("Discovering files...".to_string());
+    
+    // Collect all entries first (this is usually fast)
+    let entries: Vec<_> = WalkDir::new(dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .collect();
+    
+    progress_callback(format!("Found {} total files, filtering for music files...", entries.len()));
+    
+    let mut music_files = Vec::new();
+    for (i, entry) in entries.iter().enumerate() {
+        let path = entry.path();
+        if is_music_file(path) {
+            music_files.push(path.to_path_buf());
+        }
+        
+        // Update progress every 100 files or so
+        if i % 100 == 0 || i == entries.len() - 1 {
+            progress_callback(format!("Processed {}/{} files, found {} music files", i + 1, entries.len(), music_files.len()));
+        }
+    }
+    
+    music_files.sort(); // Sort for consistent ordering
+    progress_callback(format!("Scan complete! Found {} music files", music_files.len()));
+    
+    Ok(music_files)
+}
+
 // Fast scanning - just finds music files without loading metadata
 pub fn scan_music_directory_fast(dir: &Path) -> Result<Vec<PathBuf>> {
     let _music_files = Arc::new(Mutex::new(Vec::<PathBuf>::new()));
