@@ -367,7 +367,7 @@ impl eframe::App for MusicShuffler {
                         }
                         
                         println!("Generating playlist...");
-                        let files = music::generate_playlist(&self.music_files, 50);
+                        let files = music::generate_playlist(&self.music_files, 100);
                         
                         // Clear previous playlist and reset state
                         self.playlist.clear();
