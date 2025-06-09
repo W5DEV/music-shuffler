@@ -277,6 +277,31 @@ impl eframe::App for MusicShuffler {
             self.last_progress_update = SystemTime::now();
         }
         
+        // Auto-advance to next song when current song finishes
+        if let Some(player) = &self.audio_player {
+            if player.has_finished() && !self.playlist.is_empty() {
+                // Move to next song
+                if self.current_song_index < self.playlist.len() - 1 {
+                    self.current_song_index += 1;
+                    if let Some((path, metadata)) = self.playlist.get(self.current_song_index) {
+                        if let Err(e) = self.audio_player.as_mut().unwrap().play(path) {
+                            eprintln!("Error playing next track '{}': {}", metadata.title, e);
+                            eprintln!("This file may be corrupted. Try re-encoding or replacing it.");
+                        }
+                    }
+                } else {
+                    // Reached end of playlist - optionally loop back to beginning
+                    self.current_song_index = 0;
+                    if let Some((path, metadata)) = self.playlist.first() {
+                        if let Err(e) = self.audio_player.as_mut().unwrap().play(path) {
+                            eprintln!("Error playing first track '{}': {}", metadata.title, e);
+                            eprintln!("This file may be corrupted. Try re-encoding or replacing it.");
+                        }
+                    }
+                }
+            }
+        }
+        
         // Update every 1 second, plus immediately on mouse input when paused
         ctx.request_repaint_after(std::time::Duration::from_secs(1));
         
@@ -469,8 +494,8 @@ impl eframe::App for MusicShuffler {
                                         if response.clicked() {
                                             self.current_song_index = i;
                                             if let Some(ref mut player) = self.audio_player {
-                                                if let Err(e) = player.play(&self.playlist[i].0) {
-                                                    eprintln!("Error playing track");
+                                                                                             if let Err(_e) = player.play(&self.playlist[i].0) {
+                                                 eprintln!("Error playing track");
                                                 }
                                             }
                                         }

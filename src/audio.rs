@@ -77,6 +77,15 @@ impl AudioPlayer {
         }
     }
 
+    pub fn has_finished(&self) -> bool {
+        if let Some(sink) = &self.sink {
+            // Song has finished if sink exists but is empty (and not paused)
+            sink.empty() && !sink.is_paused()
+        } else {
+            false
+        }
+    }
+
 
 
     pub fn get_progress_with_duration(&self, total_duration_secs: f32) -> Option<f32> {
@@ -93,7 +102,5 @@ impl AudioPlayer {
         }
     }
 
-    pub fn get_duration(&self) -> Option<Duration> {
-        self.duration
-    }
+
 } 
